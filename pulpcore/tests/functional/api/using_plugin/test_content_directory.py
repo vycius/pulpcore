@@ -39,9 +39,9 @@ def test_zero_byte_file_listing(
     monitor_task(task)
     distribution = file_distribution_factory(repository=file_repo_with_auto_publish.pulp_href)
     response = http_get(distribution_base_url(distribution.base_url))
-    z_line = [i for i in response.decode("utf-8").split("\n") if i.startswith('<a href="./zero">')]
-    assert len(z_line) == 1
-    assert z_line[0].endswith("0 Bytes")
+    z_row = [i for i in response.decode("utf-8").split("\n") if '<a href="./zero"' in i]
+    assert len(z_row) == 1
+    assert ">0 Bytes</td>" in z_row[0]
 
 
 @pytest.mark.parallel
@@ -51,5 +51,4 @@ def test_content_index_title(pulp_content_url, pulp_settings, http_get):
         title += "default/"
 
     response = http_get(pulp_content_url).decode("utf-8")
-    assert f"<head><title>Index of {title}</title></head>" in response
-    assert f"<h1>Index of {title}</h1>" in response
+    assert f"<title>Index of {title}</title>" in response

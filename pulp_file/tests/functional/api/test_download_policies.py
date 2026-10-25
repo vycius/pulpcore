@@ -120,7 +120,7 @@ def test_download_policy(
         "from pulp_file.app.models import FileContent;"
         "content = FileContent.objects.filter(relative_path='foo/0.iso');"
         f"rc = RepositoryContent.objects.filter(repository='{repo_uuid}', content__in=content);"
-        "print(rc[0].pulp_created.strftime('%d-%b-%Y %H:%M'));"
+        "print(rc[0].pulp_created.strftime('%Y-%m-%d %H:%M'));"
     )
     process = subprocess.run(["pulpcore-manager", "shell", "-c", commands], capture_output=True)
     assert process.returncode == 0
@@ -130,12 +130,12 @@ def test_download_policy(
     # Assert that requesting a path inside a distribution without a trailing / returns a 301
     assert distribution_html_page.response_obj.history[0].status == 301
     soup = BeautifulSoup(distribution_html_page.body, "html.parser")
-    all_strings = [s for s in soup.strings if s != "\n"]
-    assert all_strings[3] == "0.iso"
-    content_properties_string = all_strings[4].strip()
+    link = soup.find("a", href="./0.iso")
+    assert link.text == "0.iso"
+    size, date = (cell.text for cell in link.find_parent("tr").find_all("td")[1:])
     if has_pulp_plugin("core", min="3.24.0.dev"):
-        assert "4.2 MB" in content_properties_string
-    assert content_artifact_created_date in content_properties_string
+        assert size == "4.2 MB"
+    assert date == content_artifact_created_date
 
     # Download one of the files and assert that it has the right checksum
     expected_files_list = list(expected_files)

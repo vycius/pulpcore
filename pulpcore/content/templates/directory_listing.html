@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Index of {{ path }}</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --muted: light-dark(#5f6368, #9aa0a6);
+  --link: light-dark(#2a6aa6, #8cbdf0);
+  --border: light-dark(#e3e5e8, #2a2d31);
+  --hover: light-dark(#f4f7fb, #1c2026);
+  --gutter: 2rem;
+}
+html { scroll-padding-top: 3rem; }
+body {
+  margin: 0;
+  font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 75rem; margin: 0 auto; padding: 1.5rem var(--gutter); }
+h1 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--muted); overflow-wrap: anywhere; }
+h1 a { color: CanvasText; text-decoration: none; }
+h1 a:hover { color: var(--link); }
+.meta { margin: .25rem 0 1rem; font-size: .875rem; color: var(--muted); }
+{# Rows are laid out with flexbox instead of table layout: content-visibility does not apply to
+   table rows, and with it the browser skips rendering the chunks of rows that are off screen,
+   which keeps directories with 100k+ entries fast. #}
+table, thead, tbody { display: block; }
+tbody + tbody { content-visibility: auto; contain-intrinsic-size: auto 1280rem; }
+tr { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+th, td { padding: 0; text-align: left; white-space: nowrap; }
+th:first-child, td:first-child { flex: 1; min-width: 0; white-space: normal; }
+th:nth-child(2), td:nth-child(2) { width: 8rem; }
+th:nth-child(3), td:nth-child(3) { width: 9.5rem; }
+thead tr { position: sticky; top: 0; background: Canvas; }
+th { padding-block: .5rem; font-size: .875rem; font-weight: 600; color: var(--muted); }
+tbody tr:hover { background: var(--hover); }
+td:nth-child(n+2) { font-size: .875rem; color: var(--muted); }
+td a {
+  display: block;
+  padding: .5rem 0 .5rem 2rem;
+  color: var(--link);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  background: var(--i) .125rem center / 1.25rem no-repeat;
+}
+td a:hover { text-decoration: underline; }
+{# Icons from System UIcons (https://systemuicons.com), public domain #}
+.i-folder { --i: url("data:image/svg+xml,%3Csvg viewBox='0 0 21 21' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd' stroke='%23d97b00' stroke-linecap='round' stroke-linejoin='round' transform='translate(3 4)'%3E%3Cpath d='m.5 1.5v9c0 1.1045695.8954305 2 2 2h10c1.1045695 0 2-.8954305 2-2v-6.00280762c.0007656-1.05436179-.8150774-1.91816512-1.8499357-1.99451426l-.1500643-.00468356-5 .00200544-2-2h-4c-.55228475 0-1 .44771525-1 1z'/%3E%3Cpath d='m.5 2.5h7'/%3E%3C/g%3E%3C/svg%3E"); }
+.i-file { --i: url("data:image/svg+xml,%3Csvg viewBox='0 0 21 21' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd' stroke='%23858c95' stroke-linecap='round' stroke-linejoin='round' transform='translate(4 3)'%3E%3Cpath d='m12.5 12.5v-7l-5-5h-5c-1.1045695 0-2 .8954305-2 2v10c0 1.1045695.8954305 2 2 2h8c1.1045695 0 2-.8954305 2-2z'/%3E%3Cpath d='m2.5 7.5h5'/%3E%3Cpath d='m2.5 9.5h7'/%3E%3Cpath d='m2.5 11.5h3'/%3E%3Cpath d='m7.5.5v3c0 1.1045695.8954305 2 2 2h3'/%3E%3C/g%3E%3C/svg%3E"); }
+.i-up { --i: url("data:image/svg+xml,%3Csvg viewBox='0 0 21 21' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd' stroke='%23858c95' stroke-linecap='round' stroke-linejoin='round' transform='translate(6 3)'%3E%3Cpath d='m8.5 4.5-4-4-4.029 4'/%3E%3Cpath d='m4.5.5v13'/%3E%3C/g%3E%3C/svg%3E"); }
+@media (max-width: 37.5em) {
+  :root { --gutter: 1rem; }
+  th:nth-child(3), td:nth-child(3) { display: none; }
+  th:nth-child(2), td:nth-child(2) { width: auto; padding-left: 1em; text-align: right; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav aria-label="Breadcrumb">
+    <h1>/
+      {%- for text, href in crumbs -%}
+      {%- if href %}<a href="{{ href }}"{% if loop.last %} aria-current="page"{% endif %}>{{ text }}</a>
+      {%- else %}{{ text }}{% endif %}/
+      {%- endfor %}</h1>
+  </nav>
+  <p class="meta">
+    <b>{{ num_dirs }}</b> director{{ "y" if num_dirs == 1 else "ies" }},
+    <b>{{ num_files }}</b> file{{ "" if num_files == 1 else "s" }}
+  </p>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Size</th><th>Modified (UTC)</th></tr>
+    </thead>
+    <tbody>
+      {%- if not root %}
+      <tr><td><a href="../" class="i-up" aria-label="Up to parent folder">Up</a></td><td></td><td></td></tr>
+      {%- endif %}
+    </tbody>
+    {#- Autoescaping is off for the rows because it dominates the rendering time of large
+        directories. Only the label can contain characters that need escaping, the other values
+        are numbers, fixed strings or quoted URLs. #}
+    {%- autoescape false %}
+    {%- for chunk in entries|batch(500) %}
+    <tbody>
+    {%- for href, label, is_dir, size, date in chunk %}
+<tr><td><a href="{{ href }}" class="i-{{ "folder" if is_dir else "file" }}">{{ label|e }}</a></td>
+      {%- if size is not none %}<td>{{ size|filesizeformat }}</td>{% elif is_dir %}<td>&ndash;</td>{% else %}<td></td>{% endif %}<td>{% if date %}{{ date.strftime("%Y-%m-%d %H:%M") }}{% endif %}</td></tr>
+    {%- endfor %}
+    </tbody>
+    {%- endfor %}
+    {%- endautoescape %}
+  </table>
+</main>
+</body>
+</html>

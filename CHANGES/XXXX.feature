@@ -1,0 +1,1 @@
+Redesigned the content app directory listing: breadcrumb navigation, folders listed first, light and dark themes and a mobile layout. Large directories render much faster in both the content app and the browser.

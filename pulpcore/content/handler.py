@@ -8,6 +8,8 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from gettext import gettext as _
+from pathlib import Path
+from urllib.parse import quote
 
 import django
 from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError
@@ -79,31 +81,8 @@ EDGE_CACHE_CONTROL = "public, max-age=0, must-revalidate"
 NO_STORE_EDGE_CACHE_CONTROL = "no-store"
 
 DIRECTORY_LISTING_TEMPLATE = Template(
-    """
-<html>
-<head><title>Index of {{ path }}</title></head>
-<body bgcolor="white">
-<h1>Index of {{ path }}</h1>
-<hr><pre>
-{%- if not root %}<a href="../">../</a>{% endif %}
-{% for name in dir_list -%}
-{% if dates.get(name, "") -%}
-{% set date = dates.get(name).strftime("%d-%b-%Y %H:%M") -%}
-{% else -%}
-{% set date = "" -%}
-{% endif -%}
-{% if name in sizes -%}
-{% set size | filesizeformat -%}
-{{ sizes.get(name) }}
-{% endset -%}
-{% else -%}
-{% set size = "" -%}
-{% endif -%}
-<a href="./{{ name|e }}">{{ name|e }}</a>{{ " " * (100 - name|e|length) }}{{ date }}  {{ size }}
-{% endfor -%}
-</pre><hr></body>
-</html>
-"""
+    (Path(__file__).parent / "templates" / "directory_listing.html").read_text("utf-8"),
+    autoescape=True,
 )
 
 
@@ -150,8 +129,6 @@ class DistroListings(HTTPOk):
             .distinct()
         )
         directory_list = (f"{b}/" for b in base_paths)
-        if path == "":
-            path = settings.CONTENT_PATH_PREFIX
         html = Handler.render_html(directory_list, path=path)
         super().__init__(text=html, headers={"Content-Type": "text/html"})
 
@@ -434,7 +411,7 @@ class Handler:
         """
         # Determine whether it's a listing or a specific checkpoint
         if path == "":
-            raise CheckpointListings(path=path, repo=distro.repository)
+            raise CheckpointListings(path=f"{distro.base_path}/", repo=distro.repository)
         else:
             request_timestamp, rel_path = Handler._parse_checkpoint_path(path)
 
@@ -584,25 +561,54 @@ class Handler:
     @staticmethod
     def render_html(directory_list, path="", dates=None, sizes=None):
         """
-        Render a list of strings as an HTML list of links.
+        Render a list of strings as an HTML directory listing.
 
         Args:
-            directory_list (iterable): an iterable of strings representing file and directory names
+            directory_list (iterable): an iterable of strings representing file and directory
+                names, directory names end with a "/"
+            path (str): the listed URL path, or a path relative to the content app root
+            dates (dict): optional mapping of names to datetimes
+            sizes (dict): optional mapping of file names to sizes in bytes
 
         Returns:
             String representing HTML of the directory listing.
         """
         dates = dates or {}
         sizes = sizes or {}
-        root = path == settings.CONTENT_PATH_PREFIX
-        if root and settings.DOMAIN_ENABLED:
-            path += f"{get_domain().name}/"
+        root_path = settings.CONTENT_PATH_PREFIX
+        if settings.DOMAIN_ENABLED:
+            root_path += f"{get_domain().name}/"
+        if not path.startswith("/"):
+            path = root_path + path
+
+        crumbs = []
+        href = "/"
+        for part in path.strip("/").split("/"):
+            href += f"{part}/"
+            crumbs.append((part, quote(href) if href.startswith(root_path) else None))
+
+        # Folders first, then case-insensitive by name
+        names = sorted(directory_list, key=lambda name: (not name.endswith("/"), name.casefold()))
+        # The "./" prefix keeps names with a colon from being read as a URL scheme
+        entries = [
+            (
+                f"./{quote(name, safe='/:')}",
+                name,
+                name.endswith("/"),
+                sizes.get(name),
+                dates.get(name),
+            )
+            for name in names
+        ]
+
+        num_dirs = sum(name.endswith("/") for name in names)
         return DIRECTORY_LISTING_TEMPLATE.render(
-            dir_list=sorted(directory_list),
-            dates=dates,
             path=path,
-            root=root,
-            sizes=sizes,
+            root=path == root_path,
+            crumbs=crumbs,
+            entries=entries,
+            num_dirs=num_dirs,
+            num_files=len(entries) - num_dirs,
         )
 
     @staticmethod
@@ -693,42 +699,60 @@ class Handler:
             sizes = {}
             artifacts_to_find = {}
 
+            # Plain values instead of model instances, building those dominates for large
+            # directories
             if publication:
-                pas = publication.published_artifact.select_related(
-                    "content_artifact__artifact"
-                ).filter(relative_path__startswith=path)
-                for pa in pas:
-                    name = file_or_directory_name(path, pa.relative_path)
+                pas = publication.published_artifact.filter(
+                    relative_path__startswith=path
+                ).values_list(
+                    "relative_path",
+                    "pulp_created",
+                    "content_artifact_id",
+                    "content_artifact__content_id",
+                    "content_artifact__artifact_id",
+                    "content_artifact__artifact__size",
+                )
+                for relative_path, created, ca_pk, content_id, artifact_id, size in pas:
+                    name = file_or_directory_name(path, relative_path)
                     directory_list.add(name)
-                    content_id = pa.content_artifact.content_id
-                    update_content_date(content_dates, content_id, pa.pulp_created)
+                    update_content_date(content_dates, content_id, created)
                     content_to_find.setdefault(content_id, set()).add(name)
                     if not name.endswith("/"):
-                        if pa.content_artifact.artifact:
-                            sizes[name] = pa.content_artifact.artifact.size
+                        if artifact_id:
+                            sizes[name] = size
                         else:
-                            artifacts_to_find[pa.content_artifact.pk] = name
+                            artifacts_to_find[ca_pk] = name
 
             if repo_version or publication.pass_through:
-                cas = ContentArtifact.objects.select_related("artifact").filter(
+                cas = ContentArtifact.objects.filter(
                     content__in=content_repo_ver.content, relative_path__startswith=path
+                ).values_list(
+                    "relative_path",
+                    "pulp_created",
+                    "pk",
+                    "content_id",
+                    "artifact_id",
+                    "artifact__size",
                 )
-                for ca in cas:
-                    name = file_or_directory_name(path, ca.relative_path)
+                for relative_path, created, ca_pk, content_id, artifact_id, size in cas:
+                    name = file_or_directory_name(path, relative_path)
                     directory_list.add(name)
-                    update_content_date(content_dates, ca.content_id, ca.pulp_created)
-                    content_to_find.setdefault(ca.content_id, set()).add(name)
+                    update_content_date(content_dates, content_id, created)
+                    content_to_find.setdefault(content_id, set()).add(name)
                     if not name.endswith("/"):
-                        if ca.artifact:
-                            sizes[name] = ca.artifact.size
+                        if artifact_id:
+                            sizes[name] = size
                         else:
-                            artifacts_to_find[ca.pk] = name
+                            artifacts_to_find[ca_pk] = name
 
             if directory_list:
                 # Find the dates the content got added to the repository
-                for rc in content_repo_ver._content_relationships():
-                    if rc.content_id in content_to_find:
-                        content_dates[rc.content_id] = rc.pulp_created
+                relationships = content_repo_ver._content_relationships().values_list(
+                    "content_id", "pulp_created"
+                )
+                for content_id, created in relationships:
+                    if content_id in content_to_find:
+                        content_dates[content_id] = created
 
                 # Prefer repository membership dates, then aggregate the newest date per entry.
                 for content_id, names in content_to_find.items():

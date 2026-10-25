@@ -12,6 +12,7 @@ include CODE_OF_CONDUCT.md
 include CONTRIBUTING.md
 include COPYRIGHT
 include pulpcore/app/templates/rest_framework/api.html
+include pulpcore/content/templates/directory_listing.html
 include manage.py
 include test_requirements.txt
 exclude releasing.md

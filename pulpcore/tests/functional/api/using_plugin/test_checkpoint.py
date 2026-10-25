@@ -146,7 +146,7 @@ class TestCheckpointDistribution:
         pub_1_url = checkpoint_url(distribution, pubs[1].pulp_created)
         response = http_get(pub_1_url[:-1]).decode("utf-8")
 
-        assert f"<h1>Index of {urlparse(pub_1_url).path}</h1>" in response
+        assert f"<title>Index of {urlparse(pub_1_url).path}</title>" in response
 
     def test_exact_timestamp_is_served(self, setup, http_get, checkpoint_url):
         pubs, distribution = setup
@@ -154,7 +154,7 @@ class TestCheckpointDistribution:
         pub_1_url = checkpoint_url(distribution, pubs[1].pulp_created)
         response = http_get(pub_1_url).decode("utf-8")
 
-        assert f"<h1>Index of {urlparse(pub_1_url).path}</h1>" in response
+        assert f"<title>Index of {urlparse(pub_1_url).path}</title>" in response
 
     def test_invalid_timestamp_returns_404(self, setup, http_get, distribution_base_url):
         _, distribution = setup
@@ -188,11 +188,11 @@ class TestCheckpointDistribution:
         pub_4_url = checkpoint_url(distribution, pubs[4].pulp_created)
 
         response = http_get(pub_4_url).decode("utf-8")
-        assert f"<h1>Index of {urlparse(pub_3_url).path}</h1>" in response
+        assert f"<title>Index of {urlparse(pub_3_url).path}</title>" in response
 
         # Test without a trailing slash
         response = http_get(pub_4_url[:-1]).decode("utf-8")
-        assert f"<h1>Index of {urlparse(pub_3_url).path}</h1>" in response
+        assert f"<title>Index of {urlparse(pub_3_url).path}</title>" in response
 
     def test_arbitrary_timestamp_is_redirected(self, setup, http_get, checkpoint_url):
         pubs, distribution = setup
@@ -200,11 +200,11 @@ class TestCheckpointDistribution:
         arbitrary_url = checkpoint_url(distribution, pubs[1].pulp_created + timedelta(seconds=1))
 
         response = http_get(arbitrary_url).decode("utf-8")
-        assert f"<h1>Index of {urlparse(pub_1_url).path}</h1>" in response
+        assert f"<title>Index of {urlparse(pub_1_url).path}</title>" in response
 
         # Test without a trailing slash
         response = http_get(arbitrary_url[:-1]).decode("utf-8")
-        assert f"<h1>Index of {urlparse(pub_1_url).path}</h1>" in response
+        assert f"<title>Index of {urlparse(pub_1_url).path}</title>" in response
 
     def test_current_timestamp_serves_latest_checkpoint(self, setup, http_get, checkpoint_url):
         pubs, distribution = setup
@@ -213,7 +213,7 @@ class TestCheckpointDistribution:
 
         response = http_get(now_url).decode("utf-8")
 
-        assert f"<h1>Index of {urlparse(pub_3_url).path}</h1>" in response
+        assert f"<title>Index of {urlparse(pub_3_url).path}</title>" in response
 
     def test_before_first_timestamp_returns_404(self, setup, http_get, checkpoint_url):
         pubs, distribution = setup

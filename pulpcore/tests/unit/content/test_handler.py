@@ -294,8 +294,21 @@ async def test_list_directory_metadata(monkeypatch, use_publication):
     )
     content_artifacts = [directory_content, newer_directory_content, file_content]
 
+    # Rows as returned by values_list() in list_directory()
+    rows = [
+        (
+            entry.relative_path,
+            entry.pulp_created,
+            entry.pk,
+            entry.content_id,
+            uuid.uuid4() if entry.artifact else None,
+            entry.artifact.size if entry.artifact else None,
+        )
+        for entry in content_artifacts
+    ]
+
     content_artifact_manager = Mock()
-    content_artifact_manager.select_related.return_value.filter.return_value = content_artifacts
+    content_artifact_manager.filter.return_value.values_list.return_value = rows
     monkeypatch.setattr(
         "pulpcore.content.handler.ContentArtifact",
         SimpleNamespace(objects=content_artifact_manager),
@@ -308,18 +321,13 @@ async def test_list_directory_metadata(monkeypatch, use_publication):
         SimpleNamespace(objects=remote_artifact_manager),
     )
 
-    repo_version = SimpleNamespace(content=[], _content_relationships=lambda: [])
+    relationships = Mock()
+    relationships.values_list.return_value = []
+    repo_version = SimpleNamespace(content=[], _content_relationships=lambda: relationships)
 
     if use_publication:
         publication_manager = Mock()
-        publication_manager.select_related.return_value.filter.return_value = [
-            SimpleNamespace(
-                relative_path=entry.relative_path,
-                pulp_created=entry.pulp_created,
-                content_artifact=entry,
-            )
-            for entry in content_artifacts
-        ]
+        publication_manager.filter.return_value.values_list.return_value = rows
         publication = SimpleNamespace(
             repository_version=repo_version,
             pass_through=False,
@@ -759,13 +767,16 @@ async def test_app_status_fixture_is_reusable(app_status, repeat):
 def test_render_html_colon_in_name():
     """Links with colons in the name should use './' prefix to avoid being treated as a scheme."""
     html = Handler.render_html(["copr-pull-requests:pr:3825/"])
-    assert '<a href="./copr-pull-requests:pr:3825/">copr-pull-requests:pr:3825/</a>' in html
+    assert (
+        '<a href="./copr-pull-requests:pr:3825/" class="i-folder">copr-pull-requests:pr:3825/</a>'
+        in html
+    )
 
 
 def test_render_html_normal_name():
     """Normal directory names should also get the './' prefix."""
     html = Handler.render_html(["simple-dir/"])
-    assert '<a href="./simple-dir/">simple-dir/</a>' in html
+    assert '<a href="./simple-dir/" class="i-folder">simple-dir/</a>' in html
 
 
 def test_render_html_formats_escaped_names_and_metadata():
@@ -776,10 +787,9 @@ def test_render_html_formats_escaped_names_and_metadata():
         sizes={name: 1_200},
     )
 
-    escaped_name = "a&amp;b.jar"
     expected_row = (
-        f'<a href="./{escaped_name}">{escaped_name}</a>'
-        f"{' ' * (100 - len(escaped_name))}22-Oct-2026 12:34  1.2 kB\n"
+        '<tr><td><a href="./a%26b.jar" class="i-file">a&amp;b.jar</a></td>'
+        "<td>1.2 kB</td><td>2026-10-22 12:34</td></tr>"
     )
     assert expected_row in html
 
@@ -880,3 +890,37 @@ async def test_pull_through_digest_failure_existing_content_artifact(digest_fail
     finally:
         await content.adelete()
         await remote.adelete()
+
+
+@pytest.mark.django_db
+def test_render_html_directory_listing(settings):
+    """The listing escapes names, quotes links, puts folders first and links the breadcrumbs."""
+    settings.DOMAIN_ENABLED = False
+    created = datetime(2026, 10, 25, 6, 18, tzinfo=timezone.utc)
+    html = Handler.render_html(
+        ["b.rpm", "Docs/", "a <b>#1.txt", "repodata/"],
+        path="foo/bar/",
+        dates={"b.rpm": created},
+        sizes={"b.rpm": 2048},
+    )
+
+    assert "<title>Index of /pulp/content/foo/bar/</title>" in html
+    assert '<a href="/pulp/content/foo/">foo</a>' in html
+    assert '<a href="../" class="i-up" aria-label="Up to parent folder">Up</a>' in html
+    assert 'class="i-folder">Docs/</a>' in html
+    assert html.index('href="./Docs/"') < html.index('href="./repodata/"') < html.index('"./a%20')
+    assert '<a href="./a%20%3Cb%3E%231.txt" class="i-file">a &lt;b&gt;#1.txt</a>' in html
+    assert '<tr><td><a href="./b.rpm" class="i-file">b.rpm</a></td><td>2.0 kB</td>' in html
+    assert ">2.0 kB</td><td>2026-10-25 06:18</td></tr>" in html
+
+
+@pytest.mark.django_db
+def test_render_html_root_and_chunks(settings):
+    """The content root has no "Up" link and large listings are split into chunks."""
+    settings.DOMAIN_ENABLED = False
+    html = Handler.render_html([f"{i}.txt" for i in range(501)], path="")
+
+    assert "<title>Index of /pulp/content/</title>" in html
+    assert 'href="../"' not in html
+    # The "Up" row's tbody comes first, then the chunks of 500 entries
+    assert html.count("<tbody>") == 3
